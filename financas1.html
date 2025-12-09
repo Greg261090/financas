@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Finanças">
+    <meta name="theme-color" content="#2563eb">
+    <title>Controle Financeiro</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Manifest -->
+    <link rel="manifest" href="manifest.json">
+
+    <!-- Ícone PWA -->
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-192.png" />
+
+    <style>
+        * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+        body { overscroll-behavior: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; }
+        input, select, button { font-size: 16px !important; }
+        .animate-slide-up { animation: slideUp .3s ease-out; }
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        // Estado
+        let state = {
+            activeTab: 'resumo',
+            showModal: false,
+            showConfig: !localStorage.getItem('sheetId'),
+            sheetId: localStorage.getItem('sheetId') || '',
+            transacoes: JSON.parse(localStorage.getItem('transacoes') || '[]'),
+            novaTransacao: {
+                tipo: 'despesa', categoria: 'Alimentação', valor: '',
+                data: new Date().toISOString().split('T')[0], descricao: ''
+            }
+        };
+
+        const categorias = ['Alimentação','Transporte','Moradia','Saúde','Educação','Lazer','Outros'];
+
+        function calcularPeriodo() {
+            const hoje = new Date();
+            const dia = hoje.getDate();
+            let inicio, fim;
+            if (dia >= 15) {
+                inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 15);
+                fim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 14);
+            } else {
+                inicio = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 15);
+                fim = new Date(hoje.getFullYear(), hoje.getMonth(), 14);
+            }
+            return {
+                inicio: inicio.toISOString().split('T')[0],
+                fim: fim.toISOString().split('T')[0],
+                texto: `${inicio.getDate()} ${inicio.toLocaleDateString('pt-BR',{month:'short'})} - ${fim.getDate()} ${fim.toLocaleDateString('pt-BR',{month:'short'})}`
+            };
+        }
+
+        async function carregarDados() {
+            if (!state.sheetId) return;
+            try {
+                const url = `https://docs.google.com/spreadsheets/d/${state.sheetId}/gviz/tq?tqx=out:json`;
+                const response = await fetch(url);
+                const text = await response.text();
+                const json = JSON.parse(text.substring(47).slice(0, -2));
+                const rows = json.table.rows;
+
+                const dados = rows.slice(1).map(row => ({
+                    id: row.c[0]?.v || Date.now(),
+                    tipo: row.c[1]?.v || 'despesa',
+                    categoria: row.c[2]?.v || 'Outros',
+                    valor: row.c[3]?.v || '0',
+                    data: row.c[4]?.v || new Date().toISOString().split('T')[0],
+                    descricao: row.c[5]?.v || ''
+                }));
+
+                state.transacoes = dados;
+                localStorage.setItem('transacoes', JSON.stringify(dados));
+                localStorage.setItem('sheetId', state.sheetId);
+                state.showConfig = false;
+                render();
+            } catch (e) {
+                alert('Erro ao carregar dados. Verifique o ID e se a planilha é pública.');
+            }
+        }
+
+        function adicionarTransacao() {
+            if (!state.novaTransacao.valor || !state.novaTransacao.descricao) {
+                alert('Preencha todos os campos'); return;
+            }
+            const nova = { id: Date.now(), ...state.novaTransacao };
+            state.transacoes.push(nova);
+            localStorage.setItem('transacoes', JSON.stringify(state.transacoes));
+            state.showModal = false;
+            state.novaTransacao = {
+                tipo:'despesa',categoria:'Alimentação',valor:'',
+                data:new Date().toISOString().split('T')[0],descricao:''
+            };
+            render();
+            const linha = `${nova.id}\t${nova.tipo}\t${nova.categoria}\t${nova.valor}\t${nova.data}\t${nova.descricao}`;
+            navigator.clipboard.writeText(linha).then(()=>{
+                alert('Transação adicionada! Cole na planilha Google.');
+            });
+        }
+
+        function exportarTransacoes() {
+            const texto = state.transacoes
+                .map(t => `${t.id}\t${t.tipo}\t${t.categoria}\t${t.valor}\t${t.data}\t${t.descricao}`)
+                .join('\n');
+            navigator.clipboard.writeText(texto).then(()=>{
+                alert('Copiado! Cole na planilha Google.');
+            });
+        }
+
+        function formatarData(data) {
+            return new Date(data + 'T00:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+        }
+
+        function getCategoriaColor(categoria){
+            return {
+                'Alimentação':'bg-orange-500','Transporte':'bg-blue-500','Moradia':'bg-purple-500',
+                'Saúde':'bg-red-500','Educação':'bg-green-500','Lazer':'bg-pink-500','Outros':'bg-gray-500'
+            }[categoria] || 'bg-gray-500';
+        }
+        function getCategoriaIcon(categoria){
+            return {
+                'Alimentação':'🍽️','Transporte':'🚗','Moradia':'🏠','Saúde':'❤️','Educação':'📚','Lazer':'🎮','Outros':'📦'
+            }[categoria] || '📦';
+        }
+
+        function render() {
+            const periodo = calcularPeriodo();
+            const transacoesPeriodo = state.transacoes.filter(t => t.data >= periodo.inicio && t.data <= periodo.fim);
+
+            const receitas = transacoesPeriodo.filter(t => t.tipo==='receita').reduce((s,t)=>s+parseFloat(t.valor),0);
+            const despesas = transacoesPeriodo.filter(t => t.tipo==='despesa').reduce((s,t)=>s+parseFloat(t.valor),0);
+            const saldo = receitas - despesas;
+
+            const despesasPorCategoria = transacoesPeriodo
+                .filter(t => t.tipo==='despesa')
+                .reduce((acc,t)=>{ acc[t.categoria]=(acc[t.categoria]||0)+parseFloat(t.valor); return acc; },{});
+
+            const app = document.getElementById('app');
+
+            if (state.showConfig) {
+                app.innerHTML = `
+                <div class="max-w-md mx-auto bg-gradient-to-b from-blue-600 to-blue-800 min-h-screen p-6 flex items-center justify-center">
+                    <div class="bg-white rounded-3xl p-8 w-full">
+                        <h2 class="text-2xl font-bold mb-6">⚙️ Configurar Google Sheets</h2>
+                        <input id="sheetIdInput" value="${state.sheetId}" class="w-full px-4 py-3 border rounded-xl mb-6" placeholder="Cole o ID da planilha"> 
+                        <button onclick="conectarPlanilha()" class="w-full bg-blue-600 text-white py-3 rounded-xl mb-3">Conectar</button>
+                        <button onclick="usarSemPlanilha()" class="w-full py-3 text-gray-600 rounded-xl hover:bg-gray-100">Usar sem planilha</button>
+                    </div>
+                </div>`;
+                return;
+            }
+
+            app.innerHTML = `
+            <div class="max-w-md mx-auto bg-gradient-to-b from-blue-600 to-blue-800 min-h-screen pb-20">
+                <div class="p-6 text-white">
+                    <div class="flex justify-between mb-6">
+                        <div>
+                            <h1 class="text-2xl font-bold">💰 Minhas Finanças</h1>
+                            <span class="text-sm text-blue-100">📅 ${periodo.texto}</span>
+                        </div>
+                        <button onclick="abrirConfig()" class="p-2 bg-blue-500 rounded-full">⚙️</button>
+                    </div>
+
+                    <div class="bg-white/10 backdrop-blur-lg rounded-3xl p-6 border border-white/20">
+                        <p class="text-blue-100 text-sm mb-2">Saldo Atual</p>
+                        <p class="text-4xl font-bold mb-6">R$ ${saldo.toFixed(2)}</p>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div><span class="text-xs text-blue-100">📈 Receitas</span><p class="text-lg text-green-300 font-semibold">R$ ${receitas.toFixed(2)}</p></div>
+                            <div><span class="text-xs text-blue-100">📉 Despesas</span><p class="text-lg text-red-300 font-semibold">R$ ${despesas.toFixed(2)}</p></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-t-3xl min-h-screen pt-6 px-6">
+                    <div class="flex gap-4 mb-6 border-b">
+                        <button onclick="setTab('resumo')" class="pb-3 ${state.activeTab==='resumo'?'text-blue-600 border-b-2 border-blue-600':'text-gray-500'}">Resumo</button>
+                        <button onclick="setTab('transacoes')" class="pb-3 ${state.activeTab==='transacoes'?'text-blue-600 border-b-2 border-blue-600':'text-gray-500'}">Transações</button>
+                    </div>
+
+                    ${state.activeTab==='resumo' ? `
+                        <h3 class="font-semibold mb-3">Gastos por Categoria</h3>
+                        ${(Object.keys(despesasPorCategoria).length===0)
+                            ? '<p class="text-center text-gray-500 py-8">Nenhuma despesa</p>'
+                            : Object.entries(despesasPorCategoria).map(([cat,val])=>{
+                                const p = (val/despesas*100).toFixed(0);
+                                return `
+                                <div class="bg-white rounded-2xl p-4 shadow-sm mb-4">
+                                    <div class="flex justify-between mb-2">
+                                        <div class="flex items-center gap-3">
+                                            <div class="${getCategoriaColor(cat)} p-2 rounded-xl text-2xl">${getCategoriaIcon(cat)}</div>
+                                            <span class="font-medium">${cat}</span>
+                                        </div>
+                                        <span class="font-semibold">R$ ${val.toFixed(2)}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <div class="flex-1 bg-gray-200 h-2 rounded-full"><div class="${getCategoriaColor(cat)} h-2 rounded-full" style="width:${p}%"></div></div>
+                                        <span class="text-sm">${p}%</span>
+                                    </div>
+                                </div>`
+                            }).join('')}
+                    ` : `
+                        <div class="flex justify-between mb-3">
+                            <h3 class="font-semibold">Transações</h3>
+                            <button onclick="exportarTransacoes()" class="text-blue-600">📤 Exportar</button>
+                        </div>
+                        ${(transacoesPeriodo.length===0)
+                            ? '<p class="text-center text-gray-500 py-8">Nenhuma transação</p>'
+                            : transacoesPeriodo.map(t=>`
+                            <div class="bg-white rounded-2xl p-4 shadow-sm mb-3 flex justify-between">
+                                <div class="flex gap-3">
+                                    <div class="${t.tipo==='receita'?'bg-green-100':'bg-red-100'} p-2 rounded-xl">${t.tipo==='receita'?'📈':'📉'}</div>
+                                    <div>
+                                        <p class="font-medium">${t.descricao}</p>
+                                        <p class="text-sm text-gray-500">${formatarData(t.data)} • ${t.categoria}</p>
+                                    </div>
+                                </div>
+                                <span class="font-semibold ${t.tipo==='receita'?'text-green-600':'text-red-600'}">${t.tipo==='receita'?'+':'-'}R$ ${parseFloat(t.valor).toFixed(2)}</span>
+                            </div>`).join('')}
+                    `}
+                </div>
+
+                <button onclick="abrirModal()" class="fixed bottom-24 right-6 bg-blue-600 text-white p-4 rounded-full text-3xl shadow-lg">➕</button>
+
+                <div class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t px-6 py-4 flex justify-around">
+                    <button class="flex flex-col items-center text-blue-600"><span class="text-2xl">💰</span><span class="text-xs">Início</span></button>
+                    <button class="flex flex-col items-center text-gray-400"><span class="text-2xl">💳</span><span class="text-xs">Cartões</span></button>
+                    <button class="flex flex-col items-center text-gray-400"><span class="text-2xl">🎯</span><span class="text-xs">Metas</span></button>
+                </div>
+            </div>
+
+            ${state.showModal ? `
+                <div class="fixed inset-0 bg-black/50 flex items-end z-50" onclick="if(event.target===this) fecharModal()">
+                    <div class="bg-white rounded-t-3xl p-6 w-full animate-slide-up">
+                        <div class="flex justify-between mb-6"><h2 class="text-xl font-bold">Nova Transação</h2><button onclick="fecharModal()">✖️</button></div>
+
+                        <label class="block mb-2 text-sm">Tipo</label>
+                        <div class="grid grid-cols-2 gap-3 mb-4">
+                            <button onclick="setTipo('despesa')" class="py-3 rounded-xl ${state.novaTransacao.tipo==='despesa'?'bg-red-600 text-white':'bg-gray-100'}">Despesa</button>
+                            <button onclick="setTipo('receita')" class="py-3 rounded-xl ${state.novaTransacao.tipo==='receita'?'bg-green-600 text-white':'bg-gray-100'}">Receita</button>
+                        </div>
+
+                        <label class="block mb-2 text-sm">Categoria</label>
+                        <select id="categoriaInput" class="w-full px-4 py-3 border rounded-xl mb-4">
+                            ${categorias.map(c=>`<option value="${c}" ${state.novaTransacao.categoria===c?'selected':''}>${c}</option>`).join('')}
+                        </select>
+
+                        <label class="block mb-2 text-sm">Valor</label>
+                        <input id="valorInput" type="number" step="0.01" class="w-full px-4 py-3 border rounded-xl mb-4" value="${state.novaTransacao.valor}">
+
+                        <label class="block mb-2 text-sm">Data</label>
+                        <input id="dataInput" type="date" class="w-full px-4 py-3 border rounded-xl mb-4" value="${state.novaTransacao.data}">
+
+                        <label class="block mb-2 text-sm">Descrição</label>
+                        <input id="descricaoInput" type="text" class="w-full px-4 py-3 border rounded-xl mb-4" value="${state.novaTransacao.descricao}">
+
+                        <button onclick="salvarTransacao()" class="w-full bg-blue-600 text-white py-4 rounded-xl">Adicionar</button>
+                    </div>
+                </div>
+            ` : ''}`;
+        }
+
+        // Funções globais
+        function conectarPlanilha(){ state.sheetId=document.getElementById('sheetIdInput').value; carregarDados(); }
+        function usarSemPlanilha(){ state.showConfig=false; render(); }
+        function abrirConfig(){ state.showConfig=true; render(); }
+        function setTab(t){ state.activeTab=t; render(); }
+        function abrirModal(){ state.showModal=true; render(); }
+        function fecharModal(){ state.showModal=false; render(); }
+        function setTipo(t){ state.novaTransacao.tipo=t; render(); }
+        function salvarTransacao(){
+            state.novaTransacao.categoria=document.getElementById('categoriaInput').value;
+            state.novaTransacao.valor=document.getElementById('valorInput').value;
+            state.novaTransacao.data=document.getElementById('dataInput').value;
+            state.novaTransacao.descricao=document.getElementById('descricaoInput').value;
+            adicionarTransacao();
+        }
+
+        window.exportarTransacoes = exportarTransacoes;
+
+        render();
+
+        // Service Worker
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('service-worker.js');
+    </script>
+</body>
+</html>

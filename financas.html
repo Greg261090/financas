@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Finanças">
+    <meta name="theme-color" content="#2563eb">
+    <title>Controle Financeiro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIkNvbnRyb2xlIEZpbmFuY2Vpcm8iLAogICJzaG9ydF9uYW1lIjogIkZpbmFuw6dhcyIsCiAgInN0YXJ0X3VybCI6ICIuLyIsCiAgImRpc3BsYXkiOiAic3RhbmRhbG9uZSIsCiAgImJhY2tncm91bmRfY29sb3IiOiAiIzI1NjNlYiIsCiAgInRoZW1lX2NvbG9yIjogIiMyNTYzZWIiLAogICJpY29ucyI6IFsKICAgIHsKICAgICAgInNyYyI6ICJkYXRhOmltYWdlL3N2Zyt4bWw7YmFzZTY0LFBITjJaeUI0Yld4dWN6MGlhSFIwY0RvdkwzZDNkeTUzTXk1dmNtY3ZNakF3TUM5emRtY2lJSGRwWkhSb1BTSXlOVFlpSUdobGFXZG9kRDBpTWpVMklqNDhjbVZqZENCM2FXUjBhRDBpTWpVMklpQm9aV2xuYUhROUlqSTFOaUlnWm1sc2JEMGlJekkyTmpObFlpSXZQanh3WVhSb0lHUTlJazB4TWpndU1EQWdNVEk0TGpBd1lpMHlOeTQwTWlBd0xUVXdMakF3TFRJeUxqVTRMVFV3TGpBd0xUVXdMakF3Y3kweU1pNDFPQ0ExTUM0d01DMDFNQzR3TUNBMU1DNHdNRU13TUM0d01DQTFNQZB3ZUNBME1DNDBPQ0EwTVM0ME1pQTVNaTR3TUNBNUp5QTVNaTR3TUhNeE1EQXVNREFnTkRFdU5ESWdPVEl1TURBd0lEa3lMakF3TGpBd2JERXlOeTR3TUNBME1DNHdNQ0F4TWpjdU1EQmhNVEl1TURBZ01USXVNREFnTUNBd0lERXRNVEl1TURBdE1USXVNREF0TWpjdU5ESWdNQzAwTUM0d01DMHhNaTR3TUMwME1DNHdNQzB4TWk0d01Gb2lJR1pwYkd3OUlpTm1abVptWmlJdlBqd3ZjM1puUGc9PSIsCiAgICAgICJzaXplcyI6ICIyNTZ4MjU2IiwKICAgICAgInR5cGUiOiAiaW1hZ2Uvc3ZnK3htbCIKICAgIH0KICBdCn0=">
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        body {
+            overscroll-behavior: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .animate-slide-up {
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+        input, select, button {
+            font-size: 16px !important;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="app"></div>
+
+    <script>
+        // Estado da aplicação
+        let state = {
+            activeTab: 'resumo',
+            showModal: false,
+            showConfig: !localStorage.getItem('sheetId'),
+            sheetId: localStorage.getItem('sheetId') || '',
+            transacoes: JSON.parse(localStorage.getItem('transacoes') || '[]'),
+            novaTransacao: {
+                tipo: 'despesa',
+                categoria: 'Alimentação',
+                valor: '',
+                data: new Date().toISOString().split('T')[0],
+                descricao: ''
+            }
+        };
+
+        const categorias = ['Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Educação', 'Lazer', 'Outros'];
+
+        // Calcular período (15 a 15)
+        function calcularPeriodo() {
+            const hoje = new Date();
+            const dia = hoje.getDate();
+            let inicio, fim;
+            
+            if (dia >= 15) {
+                inicio = new Date(hoje.getFullYear(), hoje.getMonth(), 15);
+                fim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 14);
+            } else {
+                inicio = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 15);
+                fim = new Date(hoje.getFullYear(), hoje.getMonth(), 14);
+            }
+            
+            return {
+                inicio: inicio.toISOString().split('T')[0],
+                fim: fim.toISOString().split('T')[0],
+                texto: `${inicio.getDate()} ${inicio.toLocaleDateString('pt-BR', {month: 'short'})} - ${fim.getDate()} ${fim.toLocaleDateString('pt-BR', {month: 'short'})}`
+            };
+        }
+
+        // Carregar dados do Google Sheets
+        async function carregarDados() {
+            if (!state.sheetId) return;
+            
+            try {
+                const url = `https://docs.google.com/spreadsheets/d/${state.sheetId}/gviz/tq?tqx=out:json`;
+                const response = await fetch(url);
+                const text = await response.text();
+                const json = JSON.parse(text.substring(47).slice(0, -2));
+                
+                const rows = json.table.rows;
+                const dados = rows.slice(1).map(row => ({
+                    id: row.c[0]?.v || Date.now(),
+                    tipo: row.c[1]?.v || 'despesa',
+                    categoria: row.c[2]?.v || 'Outros',
+                    valor: row.c[3]?.v || '0',
+                    data: row.c[4]?.v || new Date().toISOString().split('T')[0],
+                    descricao: row.c[5]?.v || ''
+                }));
+                
+                state.transacoes = dados;
+                localStorage.setItem('transacoes', JSON.stringify(dados));
+                localStorage.setItem('sheetId', state.sheetId);
+                state.showConfig = false;
+                render();
+            } catch (error) {
+                alert('Erro ao carregar dados. Verifique se a planilha está pública e o ID está correto.');
+            }
+        }
+
+        // Adicionar transação
+        function adicionarTransacao() {
+            if (!state.novaTransacao.valor || !state.novaTransacao.descricao) {
+                alert('Preencha todos os campos');
+                return;
+            }
+
+            const nova = {
+                id: Date.now(),
+                ...state.novaTransacao
+            };
+
+            state.transacoes.push(nova);
+            localStorage.setItem('transacoes', JSON.stringify(state.transacoes));
+            
+            state.showModal = false;
+            state.novaTransacao = {
+                tipo: 'despesa',
+                categoria: 'Alimentação',
+                valor: '',
+                data: new Date().toISOString().split('T')[0],
+                descricao: ''
+            };
+            
+            render();
+            
+            // Copiar para clipboard
+            const linha = `${nova.id}\t${nova.tipo}\t${nova.categoria}\t${nova.valor}\t${nova.data}\t${nova.descricao}`;
+            navigator.clipboard.writeText(linha).then(() => {
+                alert('Transação adicionada! Dados copiados para a área de transferência. Cole na planilha Google.');
+            });
+        }
+
+        // Exportar todas as transações
+        function exportarTransacoes() {
+            const texto = state.transacoes.map(t => 
+                `${t.id}\t${t.tipo}\t${t.categoria}\t${t.valor}\t${t.data}\t${t.descricao}`
+            ).join('\n');
+            
+            navigator.clipboard.writeText(texto).then(() => {
+                alert('Todas as transações foram copiadas! Cole na planilha Google.');
+            });
+        }
+
+        // Formatar data
+        function formatarData(data) {
+            const d = new Date(data + 'T00:00:00');
+            return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+        }
+
+        // Cores e ícones das categorias
+        function getCategoriaColor(categoria) {
+            const colors = {
+                'Alimentação': 'bg-orange-500',
+                'Transporte': 'bg-blue-500',
+                'Moradia': 'bg-purple-500',
+                'Saúde': 'bg-red-500',
+                'Educação': 'bg-green-500',
+                'Lazer': 'bg-pink-500',
+                'Outros': 'bg-gray-500'
+            };
+            return colors[categoria] || 'bg-gray-500';
+        }
+
+        function getCategoriaIcon(categoria) {
+            const icons = {
+                'Alimentação': '🍽️',
+                'Transporte': '🚗',
+                'Moradia': '🏠',
+                'Saúde': '❤️',
+                'Educação': '📚',
+                'Lazer': '🎮',
+                'Outros': '📦'
+            };
+            return icons[categoria] || '📦';
+        }
+
+        // Renderizar app
+        function render() {
+            const periodo = calcularPeriodo();
+            const transacoesPeriodo = state.transacoes.filter(t => 
+                t.data >= periodo.inicio && t.data <= periodo.fim
+            );
+
+            const receitas = transacoesPeriodo
+                .filter(t => t.tipo === 'receita')
+                .reduce((sum, t) => sum + parseFloat(t.valor), 0);
+            
+            const despesas = transacoesPeriodo
+                .filter(t => t.tipo === 'despesa')
+                .reduce((sum, t) => sum + parseFloat(t.valor), 0);
+            
+            const saldo = receitas - despesas;
+
+            const despesasPorCategoria = transacoesPeriodo
+                .filter(t => t.tipo === 'despesa')
+                .reduce((acc, t) => {
+                    acc[t.categoria] = (acc[t.categoria] || 0) + parseFloat(t.valor);
+                    return acc;
+                }, {});
+
+            const app = document.getElementById('app');
+            
+            if (state.showConfig) {
+                app.innerHTML = `
+                    <div class="max-w-md mx-auto bg-gradient-to-b from-blue-600 to-blue-800 min-h-screen p-6 flex items-center justify-center">
+                        <div class="bg-white rounded-3xl p-8 w-full">
+                            <h2 class="text-2xl font-bold text-gray-800 mb-6">⚙️ Configurar Google Sheets</h2>
+                            
+                            <div class="mb-6">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">ID da Planilha Google</label>
+                                <input
+                                    type="text"
+                                    id="sheetIdInput"
+                                    value="${state.sheetId}"
+                                    placeholder="Cole o ID da planilha aqui"
+                                    class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                />
+                            </div>
+
+                            <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 text-sm">
+                                <p class="font-semibold mb-2">📋 Como configurar:</p>
+                                <ol class="space-y-1 list-decimal list-inside text-gray-700">
+                                    <li>Crie uma planilha no Google Sheets</li>
+                                    <li>Primeira linha: <code class="bg-white px-1 text-xs">ID | Tipo | Categoria | Valor | Data | Descrição</code></li>
+                                    <li>Compartilhe como público (visualização)</li>
+                                    <li>Copie o ID da URL</li>
+                                    <li>Cole acima e conecte</li>
+                                </ol>
+                            </div>
+
+                            <button
+                                onclick="window.conectarPlanilha()"
+                                class="w-full bg-blue-600 text-white py-3 rounded-xl font-semibold hover:bg-blue-700 mb-3"
+                            >
+                                Conectar Planilha
+                            </button>
+
+                            <button
+                                onclick="window.usarSemPlanilha()"
+                                class="w-full text-gray-600 py-3 rounded-xl font-medium hover:bg-gray-100"
+                            >
+                                Usar sem planilha
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            app.innerHTML = `
+                <div class="max-w-md mx-auto bg-gradient-to-b from-blue-600 to-blue-800 min-h-screen pb-20">
+                    <!-- Header -->
+                    <div class="p-6 text-white">
+                        <div class="flex items-center justify-between mb-6">
+                            <div>
+                                <h1 class="text-2xl font-bold">💰 Minhas Finanças</h1>
+                                <div class="flex items-center gap-2 mt-1 text-blue-100">
+                                    <span>📅</span>
+                                    <span class="text-sm">${periodo.texto}</span>
+                                </div>
+                            </div>
+                            <button onclick="window.abrirConfig()" class="p-2 bg-blue-500 rounded-full hover:bg-blue-400">
+                                ⚙️
+                            </button>
+                        </div>
+
+                        <!-- Saldo Card -->
+                        <div class="bg-white/10 backdrop-blur-lg rounded-3xl p-6 border border-white/20">
+                            <p class="text-blue-100 text-sm mb-2">Saldo Atual</p>
+                            <p class="text-4xl font-bold mb-6">R$ ${saldo.toFixed(2)}</p>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span>📈</span>
+                                        <span class="text-xs text-blue-100">Receitas</span>
+                                    </div>
+                                    <p class="text-lg font-semibold text-green-300">R$ ${receitas.toFixed(2)}</p>
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <span>📉</span>
+                                        <span class="text-xs text-blue-100">Despesas</span>
+                                    </div>
+                                    <p class="text-lg font-semibold text-red-300">R$ ${despesas.toFixed(2)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Content -->
+                    <div class="bg-gray-50 rounded-t-3xl min-h-screen pt-6 px-6">
+                        <!-- Tabs -->
+                        <div class="flex gap-4 mb-6 border-b border-gray-200">
+                            <button onclick="window.setTab('resumo')" class="pb-3 px-2 font-medium ${state.activeTab === 'resumo' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}">
+                                Resumo
+                            </button>
+                            <button onclick="window.setTab('transacoes')" class="pb-3 px-2 font-medium ${state.activeTab === 'transacoes' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}">
+                                Transações
+                            </button>
+                        </div>
+
+                        ${state.activeTab === 'resumo' ? `
+                            <div class="space-y-4 pb-24">
+                                <h3 class="font-semibold text-gray-800 mb-3">Gastos por Categoria</h3>
+                                ${Object.keys(despesasPorCategoria).length === 0 ? 
+                                    '<p class="text-gray-500 text-center py-8">Nenhuma despesa no período</p>' :
+                                    Object.entries(despesasPorCategoria).map(([categoria, valor]) => {
+                                        const cor = getCategoriaColor(categoria);
+                                        const icon = getCategoriaIcon(categoria);
+                                        const percentual = (valor / despesas * 100).toFixed(0);
+                                        return `
+                                            <div class="bg-white rounded-2xl p-4 shadow-sm">
+                                                <div class="flex items-center justify-between mb-2">
+                                                    <div class="flex items-center gap-3">
+                                                        <div class="${cor} p-2 rounded-xl text-2xl">${icon}</div>
+                                                        <span class="font-medium text-gray-800">${categoria}</span>
+                                                    </div>
+                                                    <span class="font-semibold text-gray-800">R$ ${valor.toFixed(2)}</span>
+                                                </div>
+                                                <div class="flex items-center gap-2">
+                                                    <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                                        <div class="${cor} h-2 rounded-full" style="width: ${percentual}%"></div>
+                                                    </div>
+                                                    <span class="text-sm text-gray-500">${percentual}%</span>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')
+                                }
+                            </div>
+                        ` : `
+                            <div class="space-y-3 pb-24">
+                                <div class="flex items-center justify-between mb-3">
+                                    <h3 class="font-semibold text-gray-800">Transações do Período</h3>
+                                    <button onclick="window.exportarTransacoes()" class="text-sm text-blue-600 font-medium">
+                                        📤 Exportar
+                                    </button>
+                                </div>
+                                ${transacoesPeriodo.length === 0 ?
+                                    '<p class="text-gray-500 text-center py-8">Nenhuma transação no período</p>' :
+                                    transacoesPeriodo.map(t => `
+                                        <div class="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between">
+                                            <div class="flex items-center gap-3">
+                                                <div class="${t.tipo === 'receita' ? 'bg-green-100' : 'bg-red-100'} p-2 rounded-xl">
+                                                    ${t.tipo === 'receita' ? '📈' : '📉'}
+                                                </div>
+                                                <div>
+                                                    <p class="font-medium text-gray-800">${t.descricao}</p>
+                                                    <p class="text-sm text-gray-500">${formatarData(t.data)} • ${t.categoria}</p>
+                                                </div>
+                                            </div>
+                                            <span class="font-semibold ${t.tipo === 'receita' ? 'text-green-600' : 'text-red-600'}">
+                                                ${t.tipo === 'receita' ? '+' : '-'}R$ ${parseFloat(t.valor).toFixed(2)}
+                                            </span>
+                                        </div>
+                                    `).join('')
+                                }
+                            </div>
+                        `}
+                    </div>
+
+                    <!-- FAB -->
+                    <button onclick="window.abrirModal()" class="fixed bottom-24 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg text-3xl">
+                        ➕
+                    </button>
+
+                    <!-- Bottom Nav -->
+                    <div class="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-white border-t border-gray-200 px-6 py-4">
+                        <div class="flex items-center justify-around">
+                            <button class="flex flex-col items-center gap-1 text-blue-600">
+                                <span class="text-2xl">💰</span>
+                                <span class="text-xs font-medium">Início</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1 text-gray-400">
+                                <span class="text-2xl">💳</span>
+                                <span class="text-xs">Cartões</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1 text-gray-400">
+                                <span class="text-2xl">🎯</span>
+                                <span class="text-xs">Metas</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                ${state.showModal ? `
+                    <div class="fixed inset-0 bg-black/50 flex items-end justify-center z-50 max-w-md mx-auto" onclick="if(event.target === this) window.fecharModal()">
+                        <div class="bg-white rounded-t-3xl w-full p-6 pb-8 animate-slide-up">
+                            <div class="flex items-center justify-between mb-6">
+                                <h2 class="text-xl font-bold text-gray-800">Nova Transação</h2>
+                                <button onclick="window.fecharModal()" class="text-3xl">✖️</button>
+                            </div>
+
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button onclick="window.setTipo('despesa')" class="py-3 rounded-xl font-medium ${state.novaTransacao.tipo === 'despesa' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}">
+                                            Despesa
+                                        </button>
+                                        <button onclick="window.setTipo('receita')" class="py-3 rounded-xl font-medium ${state.novaTransacao.tipo === 'receita' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'}">
+                                            Receita
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
+                                    <select id="categoriaInput" class="w-full px-4 py-3 border border-gray-300 rounded-xl">
+                                        ${categorias.map(cat => `<option value="${cat}" ${state.novaTransacao.categoria === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Valor</label>
+                                    <input type="number" step="0.01" id="valorInput" value="${state.novaTransacao.valor}" placeholder="0.00" class="w-full px-4 py-3 border border-gray-300 rounded-xl">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Data</label>
+                                    <input type="date" id="dataInput" value="${state.novaTransacao.data}" class="w-full px-4 py-3 border border-gray-300 rounded-xl">
+                                </div>
+
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
+                                    <input type="text" id="descricaoInput" value="${state.novaTransacao.descricao}" placeholder="Ex: Supermercado" class="w-full px-4 py-3 border border-gray-300 rounded-xl">
+                                </div>
+
+                                <button onclick="window.salvarTransacao()" class="w-full bg-blue-600 text-white py-4 rounded-xl font-semibold hover:bg-blue-700 mt-6">
+                                    Adicionar Transação
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        // Funções globais
+        window.conectarPlanilha = function() {
+            state.sheetId = document.getElementById('sheetIdInput').value;
+            carregarDados();
+        };
+
+        window.usarSemPlanilha = function() {
+            state.showConfig = false;
+            render();
+        };
+
+        window.abrirConfig = function() {
+            state.showConfig = true;
+            render();
+        };
+
+        window.setTab = function(tab) {
+            state.activeTab = tab;
+            render();
+        };
+
+        window.abrirModal = function() {
+            state.showModal = true;
+            render();
+        };
+
+        window.fecharModal = function() {
+            state.showModal = false;
+            render();
+        };
+
+        window.setTipo = function(tipo) {
+            state.novaTransacao.tipo = tipo;
+            render();
+        };
+
+        window.salvarTransacao = function() {
+            state.novaTransacao.categoria = document.getElementById('categoriaInput').value;
+            state.novaTransacao.valor = document.getElementById('valorInput').value;
+            state.novaTransacao.data = document.getElementById('dataInput').value;
+            state.novaTransacao.descricao = document.getElementById('descricaoInput').value;
+            adicionarTransacao();
+        };
+
+        window.exportarTransacoes = exportarTransacoes;
+
+        // Inicializar
+        render();
+
+        // Registrar Service Worker para PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('data:text/javascript;base64,c2VsZi5hZGRFdmVudExpc3RlbmVyKCdpbnN0YWxsJywgZnVuY3Rpb24oZXZlbnQpIHsKICBzZWxmLnNraXBXYWl0aW5nKCk7Cn0pOwoKc2VsZi5hZGRFdmVudExpc3RlbmVyKCdmZXRjaCcsIGZ1bmN0aW9uKGV2ZW50KSB7CiAgZXZlbnQucmVzcG9uZFdpdGgoY2FjaGVzLm1hdGNoKGV2ZW50LnJlcXVlc3QpLnRoZW4oZnVuY3Rpb24ocmVzcG9uc2UpIHsKICAgIHJldHVybiByZXNwb25zZSB8fCBmZXRjaChldmVudC5yZXF1ZXN0KTsKICB9KSk7Cn0pOw==');
+        }
+    </script>
+</body>
+</html>
